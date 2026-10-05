@@ -15,21 +15,25 @@ import com.shilapi.xcertplay.host.R
 
 /** Keeps an explicitly started connection alive when another car app is in the foreground. */
 class DiPlaySessionService : Service() {
+    private val radioLocks by lazy { SessionRadioLocks(this) }
+
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            radioLocks.release()
             CarPlayBackgroundSession.stop()
             stopSelf()
             return START_NOT_STICKY
         }
+        radioLocks.acquire()
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "CarPlay connection", NotificationManager.IMPORTANCE_LOW))
         val open = PendingIntent.getActivity(this, 0, Intent(this, CarPlayHostActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val stop = PendingIntent.getService(this, 1, Intent(this, DiPlaySessionService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_diplay_notification)
-            .setContentTitle("DiPlay")
-            .setContentText("CarPlay connection running")
+            .setContentTitle(getString(R.string.app_name))
+            .setContentText(getString(R.string.session_notification_text))
             .setContentIntent(open).setOngoing(true)
             .addAction(Notification.Action.Builder(null, "Disconnect", stop).build()).build()
         if (Build.VERSION.SDK_INT >= 29) {
@@ -52,6 +56,10 @@ class DiPlaySessionService : Service() {
         com.shilapi.xcertplay.hud.BydNavigationOutputs.endNow()
         CarPlayBackgroundSession.stop()
         stopSelf()
+    }
+    override fun onDestroy() {
+        radioLocks.release()
+        super.onDestroy()
     }
     companion object {
         const val ACTION_STOP = "com.shihab.diplay.DISCONNECT"

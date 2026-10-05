@@ -1,3 +1,40 @@
+# DiPlay Tab
+
+Fork of [DiPlay](https://github.com/shihabal3amri/DiPlay) for the **Samsung Galaxy Tab A8** (SM-X205, Android 14 / One UI 6.1). Package `com.shihab.diplay.tab`, version `0.2.12-tab1`. Installs next to the official DiPlay APK.
+
+The original project targets BYD head units. This branch keeps CarPlay on a tablet: landscape lock, H.264 / 30 fps defaults, no BYD cluster/ADB features, and audio that survives Wi-Fi Direct gaps on a single Unisoc radio.
+
+## Audio on the Tab A8
+
+The tablet’s Wi-Fi radio cannot stay on two channels at once. If the tablet stays on a 5 GHz DFS home network (for example channel 56 at 5280 MHz) while CarPlay uses Wi-Fi Direct on 2.4 GHz, receive gaps of ~1.4 s show up as skips and speed-ups. A 1000 ms music buffer cannot cover that.
+
+Before connecting:
+
+1. Disconnect the tablet from the home 5 GHz Wi-Fi, or use Auto so Wi-Fi Direct can share a non-DFS channel.
+2. In Settings, set **Music buffer** to **1500 ms** (default on this fork) or **2000 ms**.
+3. Exempt **DiPlay Tab** from battery optimization.
+
+The renderer reorders RTP packets, inserts silence for missing AAC frames, holds a low-latency Wi-Fi lock during the session, and retries USB bulk reads at 16 KB / 4 KB when a 64 KB `UsbRequest` is rejected.
+
+## Build this fork
+
+Identity files stay outside Git. From a developer shell:
+
+```bat
+set JAVA_HOME=C:\Program Files\Eclipse Adoptium\jdk-25.0.4.101-hotspot
+set ANDROID_HOME=D:\Android\Sdk
+set DIPLAY_AUTH_ASSETS_DIR=D:\Android\diplay-runtime-assets\unz\assets
+gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:assembleStandaloneRelease
+```
+
+Release signing uses a local keystore via `ANDROID_KEYSTORE_PATH` / `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD`. Do not commit those values.
+
+The rest of this file is the upstream DiPlay 0.2.12 documentation.
+
+On Windows, the Android NDK cannot build from a folder whose path contains a space. If the clone lives in `D:\Cursor\Diplay fork`, map a drive first: `subst P: "D:\Cursor\Diplay fork"` then run Gradle from `P:\`.
+
+---
+
 # DiPlay
 
 **CarPlay for compatible BYD Android head units.** Wired and wireless, with the familiar DiAuto interface. Independent app: `com.shihab.diplay`.
@@ -59,7 +96,7 @@ BYD DiLink 4.0 / Android 10 clean-install validation result.
 - [Release notes](CHANGELOG.md)
 - [Credits and licenses](docs/THIRD_PARTY_NOTICES.md)
 
-The website is available in English, Arabic, Russian, Ukrainian, Spanish and Simplified Chinese. The app interface supports those same six languages. Choose the app language in Settings; on Android 13+, it stays synchronized with Android’s per-app language setting.
+The website is available in English, Arabic, Russian, Ukrainian, Spanish and Simplified Chinese. This tablet fork also includes Brazilian Portuguese in the app. Choose the app language in Settings; on Android 13+, it stays synchronized with Android’s per-app language setting.
 
 ## Source and credits
 

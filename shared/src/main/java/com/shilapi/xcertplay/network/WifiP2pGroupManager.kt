@@ -234,6 +234,10 @@ class WifiP2pGroupManager(
             }
             diagnostic("Wi-Fi P2P ready mode=${creation.mode} band=${group.bandLabel} channel=${group.channel} frequencyMHz=${group.frequencyMHz}")
             diagnostic("Wi-Fi P2P channel requestedMHz=${creation.frequencyMHz ?: "auto"} actualMHz=${group.frequencyMHz} matched=${creation.frequencyMHz?.let { it == group.frequencyMHz } ?: "system_selected"}")
+            val stationNow = readStation().alignmentFrequency
+            diagnostic("Wi-Fi P2P concurrency stationMHz=${stationNow ?: "none"} groupMHz=${group.frequencyMHz} " +
+                "multiChannel=${WifiP2pChannelAdvice.multiChannel(stationNow, group.frequencyMHz)}" +
+                (WifiP2pChannelAdvice.advise(stationNow, preferredChannel)?.let { " advice=${it.kind}" } ?: ""))
             if (preferredChannel != WifiP2pChannels.AUTO && group.frequencyMHz != creation.frequencyMHz) {
                 throw P2pChannelUnavailableException(preferredChannel,
                     "The car selected channel ${group.channel} instead.")

@@ -6,10 +6,11 @@ package com.shilapi.xcertplay.media
  * outlasts them. Calls, Siri and navigation prompts keep the small low-latency buffer.
  */
 object MediaAudioBuffer {
-    const val DEFAULT_MILLIS = 300
-    val presets = listOf(DEFAULT_MILLIS, 500, 1000)
+    const val DEFAULT_MILLIS = 1500
+    val presets = listOf(300, 500, 1000, DEFAULT_MILLIS, 2000)
 
     private const val HEADROOM_MILLIS = 200 // room above the start level so bursts after a gap fit
+    private fun headroomMillis(millis: Int) = maxOf(HEADROOM_MILLIS, millis / 5)
     private const val MIN_TRACK_BUFFER_BYTES = 16 * 1024
     private const val MIN_START_BUFFER_BYTES = 4 * 1024
 
@@ -25,8 +26,9 @@ object MediaAudioBuffer {
         )
         if (!isMedia) return lowLatency
         val bytesPerSecond = sampleRate.toLong() * channels.coerceIn(1, 2) * 2
-        val start = (bytesPerSecond * sanitize(mediaMillis) / 1000).toInt()
-        val capacity = (bytesPerSecond * (sanitize(mediaMillis) + HEADROOM_MILLIS) / 1000).toInt()
+        val millis = sanitize(mediaMillis)
+        val start = (bytesPerSecond * millis / 1000).toInt()
+        val capacity = (bytesPerSecond * (millis + headroomMillis(millis)) / 1000).toInt()
         return Plan(
             trackBufferBytes = maxOf(capacity, lowLatency.trackBufferBytes),
             startBytes = maxOf(start, lowLatency.startBytes),

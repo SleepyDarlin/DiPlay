@@ -367,12 +367,11 @@ class Iap2UsbSession internal constructor(
                 checkOpenLocked()
                 pendingRead = request
             }
-            val buffer = ByteBuffer.allocateDirect(USBMUX_READ_CHUNK_BYTES)
-            if (!request.queue(buffer)) {
-                throw IphoneUsbException.DeviceUnavailable(
-                    "Android could not queue USBMUX read request (${requestDiagnostics(timeoutMillis, buffer.capacity())})",
-                )
-            }
+            val buffer = UsbBulkQueue.queue(request, USBMUX_READ_CHUNK_BYTES) { size ->
+                Log.w("xcertplay-usb", "USBMUX read buffer reduced to $size")
+            } ?: throw IphoneUsbException.DeviceUnavailable(
+                "Android could not queue USBMUX read request (${requestDiagnostics(timeoutMillis, USBMUX_READ_CHUNK_BYTES)})",
+            )
             val completed = try {
                 connection.requestWait(timeoutMillis)
             } catch (_: TimeoutException) {

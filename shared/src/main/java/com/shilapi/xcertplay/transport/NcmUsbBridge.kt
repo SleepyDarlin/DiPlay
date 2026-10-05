@@ -41,11 +41,12 @@ class NcmUsbBridge internal constructor(
     private var buffered = ByteArray(0)
     private var bufferedSize = 0
     private val readBuffer = ByteArray(READ_CHUNK_BYTES)
+    private var readBufferBytes = READ_CHUNK_BYTES
     // Bulk IN uses one persistent async request: bulkTransfer() pins its byte[] in a JNI critical
     // section for the whole wait, which blocks ART's GC thread flip and, with it, every other USB
     // transfer (seen as ~0.8 s stalls of video and audio). A timed-out request stays queued, so no
     // data is lost between calls. This is the only requestWait() user on this connection.
-    private val directReadBuffer = ByteBuffer.allocateDirect(READ_CHUNK_BYTES)
+    private var directReadBuffer = ByteBuffer.allocateDirect(READ_CHUNK_BYTES)
     private var readRequest: UsbRequest? = null
     private var readQueued = false
     private val statusRunning = AtomicBoolean(statusEndpoint != null)
@@ -231,8 +232,7 @@ class NcmUsbBridge internal constructor(
                     readRequest = it
                 }
                 if (!readQueued) {
-                    directReadBuffer.clear()
-                    if (!current.queue(directReadBuffer)) throw failSession("Android could not queue the NCM read request")
+                    if (!queueRead(current)) throw failSession("Android could not queue the NCM read request")
                     readQueued = true
                 }
                 current
@@ -260,6 +260,21 @@ class NcmUsbBridge internal constructor(
         } catch (error: RuntimeException) {
             throw failSession("NCM read failed", error)
         }
+    }
+
+    private fun queueRead(request: UsbRequest): Boolean {
+        for (size in UsbBulkQueue.sizes(readBufferBytes)) {
+            if (directReadBuffer.capacity() != size) directReadBuffer = ByteBuffer.allocateDirect(size)
+            directReadBuffer.clear()
+            if (request.queue(directReadBuffer)) {
+                if (size != readBufferBytes) {
+                    Log.w(IphoneCarPlayConfiguration.TAG, "NCM read buffer reduced to $size")
+                    readBufferBytes = size
+                }
+                return true
+            }
+        }
+        return false
     }
 
     private fun failSession(message: String, cause: Throwable? = null): IphoneUsbException.DeviceUnavailable {

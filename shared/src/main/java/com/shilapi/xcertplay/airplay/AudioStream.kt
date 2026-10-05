@@ -84,11 +84,14 @@ class AudioStream(
     }
 
     private fun runData(socket: DatagramSocket, listener: Listener) {
+        runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO) }
         val stats = StreamReceiveStats("audio type=$streamType", onDiagnostic)
         val buffer = ByteArray(DATAGRAM_BYTES)
+        val packet = DatagramPacket(buffer, buffer.size)
+        val opener = AudioPacketOpener(key)
         try {
             while (!closed.get()) {
-                val packet = DatagramPacket(buffer, buffer.size)
+                packet.setData(buffer, 0, buffer.size)
                 try {
                     stats.reading()
                     socket.receive(packet)
@@ -121,15 +124,10 @@ class AudioStream(
                     continue
                 }
 
-                val aad = wire.copyOfRange(4, RTP_HEADER_LEN)
-                val sealedEnd = wire.size - NONCE_LEN
-                val sealed = wire.copyOfRange(RTP_HEADER_LEN, sealedEnd)
-                val shortNonce = wire.copyOfRange(sealedEnd, wire.size)
-                val nonce = ByteArray(12).also { shortNonce.copyInto(it, 4) }
                 val sample = readU32Be(wire, 4)
 
-                val payload = try {
-                    AirPlayCrypto.chachaOpen(key, nonce, sealed, aad)
+                val rtp = try {
+                    opener.open(wire)
                 } catch (error: Exception) {
                     val failureNumber = authenticationFailures.incrementAndGet()
                     if (failureNumber == 1) {
@@ -144,14 +142,14 @@ class AudioStream(
                     stats.processed()
                     continue
                 }
-                val rtp = wire.copyOf(RTP_HEADER_LEN) + payload
                 val decryptedNumber = decryptedPackets.incrementAndGet()
                 if (decryptedNumber <= FIRST_PACKET_LOG_COUNT) {
+                    val payloadBytes = rtp.size - RTP_HEADER_LEN
                     android.util.Log.i(
                         TAG,
                         "audio stream type=$streamType packet=$decryptedNumber sample=$sample " +
-                            "wireBytes=${wire.size} payloadBytes=${payload.size} " +
-                            "payloadHead=${payload.copyOf(minOf(payload.size, 16)).toHexString()}",
+                            "wireBytes=${wire.size} payloadBytes=$payloadBytes " +
+                            "payloadHead=${rtp.copyOfRange(RTP_HEADER_LEN, RTP_HEADER_LEN + minOf(payloadBytes, 16)).toHexString()}",
                     )
                 } else if (decryptedNumber % PACKET_LOG_INTERVAL == 0) {
                     android.util.Log.i(

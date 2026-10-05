@@ -784,11 +784,19 @@ private class AudioRenderer(
     private val mediaBufferMillis: Int,
     private val report: (String) -> Unit,
 ) : Closeable {
-    private data class AudioPacket(val rtp: ByteArray, val sample: Int)
+    private sealed interface QueuedAudio
+    private class AudioPacket(val rtp: ByteArray, val sample: Int) : QueuedAudio
+    /** Stands in for packets that never arrived, directly before the packet stamped [beforeSample]. */
+    private class AudioSilence(val samples: Int, val beforeSample: Int) : QueuedAudio
 
     private var trackAttributes: AudioAttributes? = null
     private var mappedChannel: AudioChannel? = null
-    private val queue = LinkedBlockingQueue<AudioPacket>(MAX_QUEUED_PACKETS)
+    private val queue = LinkedBlockingQueue<QueuedAudio>(MAX_QUEUED_PACKETS)
+    private val reorder = RtpAudioReorder<AudioPacket>(maxConcealSamples = format.sampleRate / 4)
+    /** Silence owed before the decoder output stamped at or after the key (microseconds). */
+    private val pendingSilence = ArrayDeque<Pair<Long, Int>>()
+    private val silence = ByteArray(SILENCE_CHUNK_BYTES)
+    private var inputRetries = 0
     @Volatile private var running = true
     @Volatile private var started = false
     private var codec: MediaCodec? = null
@@ -840,20 +848,36 @@ private class AudioRenderer(
     }
 
     fun submit(rtp: ByteArray, sample: Int) {
-        if (started) {
-            packetsReceived.incrementAndGet()
-            val now = System.nanoTime()
-            val previous = lastArrivalNs.getAndSet(now)
-            if (previous != 0L) maxArrivalGapMs.accumulateAndGet((now - previous) / 1_000_000L, ::maxOf)
+        if (!started) return
+        packetsReceived.incrementAndGet()
+        val now = System.nanoTime()
+        val previous = lastArrivalNs.getAndSet(now)
+        if (previous != 0L) maxArrivalGapMs.accumulateAndGet((now - previous) / 1_000_000L, ::maxOf)
+        val packet = AudioPacket(rtp, sample)
+        if (rtp.size < RTP_HEADER_BYTES) {
+            enqueue(packet)
+            return
         }
-        if (!started || !queue.offer(AudioPacket(rtp, sample))) {
-            if (started) packetsDropped.incrementAndGet()
-            if (started && !droppedPacketsLogged) {
-                droppedPacketsLogged = true
-                Log.w(TAG, "audio queue full; dropping newest packets to bound latency")
-                report("Audio: queue full audioType=${format.audioType}")
-            }
+        val sequence = ((rtp[2].toInt() and 0xff) shl 8) or (rtp[3].toInt() and 0xff)
+        synchronized(reorder) { reorder.push(sequence, sample, packet, now) }.forEach(::enqueueReleased)
+    }
+
+    private fun enqueueReleased(out: RtpAudioReorder.Out<AudioPacket>) = when (out) {
+        is RtpAudioReorder.Packet -> enqueue(out.item)
+        is RtpAudioReorder.Gap -> enqueue(AudioSilence(out.samples, out.beforeTimestamp))
+    }
+
+    /** A full queue means sound is already seconds late: drop the oldest entry, not the newest. */
+    private fun enqueue(item: QueuedAudio) {
+        if (queue.offer(item)) return
+        queue.poll()
+        packetsDropped.incrementAndGet()
+        if (!droppedPacketsLogged) {
+            droppedPacketsLogged = true
+            Log.w(TAG, "audio queue full; dropping oldest packets to bound latency")
+            report("Audio: queue full audioType=${format.audioType}")
         }
+        queue.offer(item)
     }
 
     override fun close() {
@@ -862,6 +886,7 @@ private class AudioRenderer(
     }
 
     private fun run() {
+        runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO) }
         try {
             runCatching { report("Audio: starting api=${Build.VERSION.SDK_INT} " +
                 "audioType=${format.audioType} codec=${format.codec} rate=${format.sampleRate} channels=${format.channels} " +
@@ -878,6 +903,7 @@ private class AudioRenderer(
             while (running) {
                 diagnosticStage = "packet"
                 queue.poll(AUDIO_POLL_MILLIS, TimeUnit.MILLISECONDS)?.let(::handle)
+                synchronized(reorder) { reorder.flushStale(System.nanoTime()) }.forEach(::enqueueReleased)
                 // Output becomes ready asynchronously, including after the last packet of a burst.
                 // Waiting for the next UDP packet can strand decoded sound for hundreds of ms.
                 diagnosticStage = "decoder-output"
@@ -1171,7 +1197,16 @@ private class AudioRenderer(
             .putLong(OPUS_SEEK_PRE_ROLL_NANOS)
             .array()
 
-    private fun handle(packet: AudioPacket) {
+    private fun handle(item: QueuedAudio) {
+        val packet = when (item) {
+            is AudioPacket -> item
+            is AudioSilence -> {
+                // Decoded sound lags its input: hold the silence until the decoder reaches the hole.
+                if (codec != null) pendingSilence.addLast(sampleTimestampUs(item.beforeSample) to item.samples)
+                else writeSilence(item.samples)
+                return
+            }
+        }
         val rtp = packet.rtp
         val timestampUs = sampleTimestampUs(packet.sample)
         when (format.codec) {
@@ -1216,7 +1251,16 @@ private class AudioRenderer(
     private fun feedCodec(payload: ByteArray, presentationTimeUs: Long) {
         val codec = codec ?: run { decoderUnavailablePackets++; return }
         diagnosticStage = "decoder-input"
-        val index = codec.dequeueInputBuffer(INPUT_TIMEOUT_US)
+        var index = codec.dequeueInputBuffer(INPUT_TIMEOUT_US)
+        // After a Wi-Fi gap packets arrive as a burst faster than the decoder frees inputs. Dropping
+        // one skips ~23 ms of music, so keep draining output and wait while the track buffer covers it.
+        val deadline = System.nanoTime() + INPUT_WAIT_LIMIT_NS
+        while (index < 0 && running && System.nanoTime() < deadline) {
+            inputRetries++
+            drainCodec(codec)
+            diagnosticStage = "decoder-input"
+            index = codec.dequeueInputBuffer(INPUT_TIMEOUT_US)
+        }
         if (index < 0) {
             inputDropped++
             if (inputDropped == 1) {
@@ -1284,6 +1328,7 @@ private class AudioRenderer(
                         }
                     }
                     if (size > 0) {
+                        writePendingSilence(info.presentationTimeUs)
                         val output = codec.getOutputBuffer(index)
                         if (output != null) {
                             if (size > pcm.size) pcm = ByteArray(size)
@@ -1298,6 +1343,25 @@ private class AudioRenderer(
                 }
                 else -> return
             }
+        }
+    }
+
+    private fun writePendingSilence(outputUs: Long) {
+        while (pendingSilence.isNotEmpty()) {
+            val (beforeUs, samples) = pendingSilence.first()
+            // A timestamp far ahead of the output means the stream restarted; do not hold it forever.
+            if (outputUs < beforeUs && beforeUs - outputUs < SILENCE_RESYNC_US) return
+            pendingSilence.removeFirst()
+            writeSilence(samples)
+        }
+    }
+
+    private fun writeSilence(samples: Int) {
+        var remaining = samples.toLong() * frameBytes
+        while (remaining > 0 && running) {
+            val chunk = minOf(remaining, silence.size.toLong()).toInt()
+            writePcm(silence, 0, chunk)
+            remaining -= chunk
         }
     }
 
@@ -1324,7 +1388,8 @@ private class AudioRenderer(
             }
             val writeStarted = System.nanoTime()
             diagnosticStage = "track-write"
-            val count = track.write(data, offset + written, writeLength, AudioTrack.WRITE_BLOCKING)
+            val mode = if (playbackStarted) AudioTrack.WRITE_NON_BLOCKING else AudioTrack.WRITE_BLOCKING
+            val count = track.write(data, offset + written, writeLength, mode)
             maxWriteMs = maxOf(maxWriteMs, (System.nanoTime() - writeStarted) / 1_000_000L)
             if (count < 0) {
                 writeErrorsThisWindow++
@@ -1333,7 +1398,8 @@ private class AudioRenderer(
             }
             if (count == 0) {
                 zeroWritesThisWindow++
-                break
+                if (playbackStarted) Thread.sleep(2) else break
+                continue
             }
             if (count < writeLength) partialWritesThisWindow++
             written += count
@@ -1419,6 +1485,14 @@ private class AudioRenderer(
             Log.i(STATS_TAG, decoderLine)
             runCatching { report(decoderLine) }
         }
+        val jitterLine = synchronized(reorder) {
+            "Audio: jitter stats audioType=${format.audioType} rtpLostTotal=${reorder.lostPackets} " +
+                "rtpLateTotal=${reorder.latePackets} rtpReorderedTotal=${reorder.reorderedPackets} " +
+                "concealedMsTotal=${reorder.concealedSamples * 1000L / format.sampleRate} " +
+                "rtpResyncsTotal=${reorder.resyncs} decoderInputRetriesTotal=$inputRetries ended=$force"
+        }
+        Log.i(STATS_TAG, jitterLine)
+        runCatching { report(jitterLine) }
         statsLastUnderruns = underruns
         maxWriteMs = 0L
         writtenFramesThisWindow = 0L
@@ -1501,6 +1575,10 @@ private class AudioRenderer(
         const val OPUS_CODEC_DELAY_NANOS = 6_500_000L
         const val OPUS_SEEK_PRE_ROLL_NANOS = 80_000_000L
         const val INPUT_TIMEOUT_US = 10_000L
+        const val INPUT_WAIT_LIMIT_NS = 250_000_000L
+        const val RTP_HEADER_BYTES = 12
+        const val SILENCE_CHUNK_BYTES = 4 * 1024
+        const val SILENCE_RESYNC_US = 2_000_000L
         const val AUDIO_POLL_MILLIS = 10L
         const val BUFFER_TAIL_WAIT_NS = 500_000_000L
         // Holds a burst after a Wi-Fi gap (~4 s of AAC) instead of dropping it.

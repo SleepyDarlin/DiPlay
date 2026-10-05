@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DiPlay Tab</string>
+    <string name="diplay">DiPlay Tab</string>
+    <string name="carplay_at_home_in_your_car">CarPlay no seu tablet Galaxy.</string>
+    <string name="an_independent_carplay_receiver_for_android_head_units_wir">Um receptor CarPlay independente para tablets Android. A ligação Wi-Fi Direct corre no tablet, com autenticação local. Um iPhone normal liga-se sem jailbreak, Mac, dongle ou conta.\n\nEsta pré-visualização usa uma identidade de acessório experimental. Ainda está a ser testada em cada iPhone e tablet. Não é um produto certificado pela Apple.</string>
+    <string name="music_buffer">Buffer de música</string>
+    <string name="s_300_ms_default">300 ms</string>
+    <string name="s_500_ms">500 ms</string>
+    <string name="s_1000_ms_most_stable">1000 ms</string>
+    <string name="s_1500_ms_recommended">1500 ms · recomendado</string>
+    <string name="s_2000_ms_most_stable">2000 ms · mais estável</string>
+    <string name="wifi_direct_channel_description">O automático partilha o canal Wi-Fi do tablet quando pode. Se o tablet estiver numa rede de casa em 5 GHz DFS, desligue-se dessa rede para o áudio do CarPlay não trepidar. Canais manuais dependem do que o tablet suporta. As alterações aplicam-se na próxima ligação Wi-Fi Direct.</string>
+    <string name="hotspot_mode_p2p_desc">Recomendado neste tablet. Mantenha o Wi-Fi e o Bluetooth ligados; saia de uma rede de casa 5 GHz DFS durante o CarPlay.</string>
+    <string name="wifi_direct_mcc_leave_home_wifi">O tablet está no canal Wi-Fi %1$d, que o Wi-Fi Direct não consegue partilhar. Desligue-se dessa rede antes de ligar o CarPlay, senão o áudio trepida.</string>
+    <string name="wifi_direct_mcc_manual_mismatch">O canal Wi-Fi Direct preferido é diferente do Wi-Fi do tablet (canal %1$d). Escolha Automático, ou desligue-se dessa rede.</string>
+    <string name="battery_optimization">Otimização de bateria</string>
+    <string name="battery_optimization_description">A Samsung pode pausar o Wi-Fi Direct em segundo plano. Isente o DiPlay Tab para a música ficar estável.</string>
+    <string name="open_battery_optimization">Permitir bateria sem restrições</string>
+    <string name="session_notification_text">Ligação CarPlay em curso</string>
+    <string name="allow_nearby_devices_for_diplay_in_the_head_unit_s_app_per">Permita Dispositivos próximos para o DiPlay nas permissões da aplicação no tablet.</string>
+    <string name="allow_precise_location_for_diplay_in_the_head_unit_s_app_p">Permita Localização precisa para o DiPlay nas permissões da aplicação no tablet.</string>
+    <string name="use_hevc_leave_off_for_the_widest_head_unit_compatibility">Usar HEVC. Deixe desligado para a maior compatibilidade no tablet.</string>
+    <string name="language_hint">Escolha um idioma para o DiPlay. A predefinição do sistema segue o idioma do dispositivo.</string>
+    <string name="language_app_language">Idioma da aplicação</string>
+    <string name="language_system_default">Predefinição do sistema</string>
+    <string name="language_apply">Aplicar</string>
+    <string name="common_cancel">Cancelar</string>
+</resources>

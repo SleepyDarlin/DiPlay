@@ -568,7 +568,7 @@ class DiPlayActivity : ComponentActivity() {
                 save = { AirPlayPersistence.saveDisplayScalePercent(this, it) },
             )
             val bufferPresets = com.shilapi.xcertplay.media.MediaAudioBuffer.presets
-            choice(card, getString(R.string.music_buffer), listOf(getString(R.string.s_300_ms_default), getString(R.string.s_500_ms), getString(R.string.s_1000_ms_most_stable)),
+            choice(card, getString(R.string.music_buffer), bufferPresets.map(::musicBufferLabel),
                 bufferPresets.indexOf(AirPlayPersistence.loadMediaBufferMillis(this)).coerceAtLeast(0)) {
                 AirPlayPersistence.saveMediaBufferMillis(this, bufferPresets[it])
             }
@@ -855,6 +855,8 @@ class DiPlayActivity : ComponentActivity() {
             card.addView(label(getString(R.string.nearby_devices_connects_your_iphone_microphone_enables_sir), 16, MUTED))
             card.addView(button(getString(R.string.app_permissions), false) { openSystem(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) }, matchButton(16, 60))
             card.addView(button(getString(R.string.bluetooth_settings), false) { openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }, matchButton(10, 60))
+            card.addView(label(getString(R.string.battery_optimization_description), 16, MUTED).apply { setPadding(0, dp(12), 0, 0) })
+            card.addView(button(getString(R.string.open_battery_optimization), false) { openBatteryOptimization() }, matchButton(10, 60))
             card.addView(button(getString(R.string.wireless_connection_help), false) { wirelessHelp() }, matchButton(10, 60))
         }
         section(content, getString(R.string.about), R.drawable.ic_dp_about) { card ->
@@ -1152,8 +1154,47 @@ class DiPlayActivity : ComponentActivity() {
         } else {
             parent.addView(label(getString(R.string.turn_the_car_s_wi_fi_switch_on_allow_location_nearby_devic), 16, MUTED))
             wifiDirectChannelControl(parent)
+            wifiDirectChannelAdvice()?.let { warning ->
+                parent.addView(label(warning, 15, WARNING).apply { setPadding(0, 0, 0, dp(12)) })
+            }
             parent.addView(button(getString(R.string.open_car_wi_fi_settings), false) { openCarClientWifiSettings() }, matchButton(12, 60))
         }
+    }
+
+    private fun musicBufferLabel(millis: Int): String = when (millis) {
+        300 -> getString(R.string.s_300_ms_default)
+        500 -> getString(R.string.s_500_ms)
+        1000 -> getString(R.string.s_1000_ms_most_stable)
+        1500 -> getString(R.string.s_1500_ms_recommended)
+        2000 -> getString(R.string.s_2000_ms_most_stable)
+        else -> getString(R.string.s_buffer_ms, millis)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun wifiDirectChannelAdvice(): String? {
+        val info = getSystemService(android.net.wifi.WifiManager::class.java)?.connectionInfo ?: return null
+        if (info.supplicantState != android.net.wifi.SupplicantState.COMPLETED) return null
+        val advice = com.shilapi.xcertplay.network.WifiP2pChannelAdvice.advise(
+            info.frequency.takeIf { it > 0 },
+            AirPlayPersistence.loadWifiP2pPreferredChannel(this),
+        ) ?: return null
+        return when (advice.kind) {
+            com.shilapi.xcertplay.network.WifiP2pChannelAdvice.Kind.STATION_UNSHARABLE ->
+                getString(R.string.wifi_direct_mcc_leave_home_wifi, advice.stationChannel)
+            com.shilapi.xcertplay.network.WifiP2pChannelAdvice.Kind.MANUAL_MISMATCH ->
+                getString(R.string.wifi_direct_mcc_manual_mismatch, advice.stationChannel)
+        }
+    }
+
+    private fun openBatteryOptimization() {
+        val ignoring = getSystemService(android.os.PowerManager::class.java)
+            ?.isIgnoringBatteryOptimizations(packageName) == true
+        val intent = if (ignoring) {
+            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+        } else {
+            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))
+        }
+        openSystem(intent)
     }
 
     private fun wifiDirectChannelLabel(channel: Int): String = if (channel == WifiP2pChannels.AUTO) {

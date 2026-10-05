@@ -35,7 +35,17 @@ class MediaAudioBufferTest {
     @Test
     fun `unknown delay falls back to the default`() {
         assertEquals(MediaAudioBuffer.DEFAULT_MILLIS, MediaAudioBuffer.sanitize(250))
-        assertEquals(57_600, MediaAudioBuffer.plan(true, 48_000, 2, 7_680, mediaMillis = 42).startBytes)
+        assertEquals(288_000, MediaAudioBuffer.plan(true, 48_000, 2, 7_680, mediaMillis = 42).startBytes)
+    }
+
+    @Test
+    fun `tablet presets keep extra headroom for long wifi hops`() {
+        val oneHalf = MediaAudioBuffer.plan(true, 48_000, 2, 7_680, mediaMillis = 1500)
+        assertEquals(288_000, oneHalf.startBytes)
+        assertEquals(345_600, oneHalf.trackBufferBytes)
+        val twoSeconds = MediaAudioBuffer.plan(true, 48_000, 2, 7_680, mediaMillis = 2000)
+        assertEquals(384_000, twoSeconds.startBytes)
+        assertEquals(460_800, twoSeconds.trackBufferBytes)
     }
 
     @Test

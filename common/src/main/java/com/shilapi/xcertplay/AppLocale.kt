@@ -21,7 +21,9 @@ object AppLocale {
     const val SPANISH = "es"
     const val UKRAINIAN = "uk"
 
-    val ALL = listOf(SYSTEM, ENGLISH, SIMPLIFIED_CHINESE, ARABIC, RUSSIAN, SPANISH, UKRAINIAN)
+    const val PORTUGUESE = "pt"
+
+    val ALL = listOf(SYSTEM, ENGLISH, PORTUGUESE, SIMPLIFIED_CHINESE, ARABIC, RUSSIAN, SPANISH, UKRAINIAN)
 
     private const val PREFS = "diplay"
     private const val KEY_LANGUAGE = "app_language"
@@ -96,6 +98,7 @@ object AppLocale {
     fun displayName(context: Context, language: String): String = when (language) {
         SYSTEM -> context.getString(R.string.language_system_default)
         ENGLISH -> "English"
+        PORTUGUESE -> "Português"
         SIMPLIFIED_CHINESE -> "简体中文"
         ARABIC -> "العربية"
         RUSSIAN -> "Русский"
@@ -106,6 +109,7 @@ object AppLocale {
 
     private fun locale(language: String): Locale? = when (language) {
         ENGLISH -> Locale.ENGLISH
+        PORTUGUESE -> Locale("pt", "BR")
         SIMPLIFIED_CHINESE -> Locale.SIMPLIFIED_CHINESE
         ARABIC -> Locale("ar")
         RUSSIAN -> Locale("ru")
